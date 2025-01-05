@@ -14,20 +14,26 @@ import (
 
 // Update Album in the database and return the album ID
 func UpdateAlbums(db *mongo.Database, track map[string] interface {} ) (string, error) {
+
 	album := track["album"].(string)
 	artistID := track["artistID"].(string)
+	albumArtist := track["album_artist"].(string)
 	coverArtHash := track["coverArtHash"].(string)
-	artistObjectID := mongodb.SafeObjectIDFromHex(artistID)
-	
+
+	if albumArtist == "" {
+		albumArtist = artistID
+	}
+
 	albumsCollection := db.Collection("albums")
-	albumFilter := bson.M{"name": album, "artistID": artistObjectID}
+	albumFilter := bson.M{"name": album, "album_artist": albumArtist}
 	albumUpdate := bson.M{
 		"$set": bson.M{
 			"name":        album,
-			"artistID":    artistObjectID,
+			"album_artist":    albumArtist,
 			"coverArtHash": coverArtHash,
 		},
 	}
+	
 	albumOpts := options.Update().SetUpsert(true)
 	albumRes, err := albumsCollection.UpdateOne(context.Background(), albumFilter, albumUpdate, albumOpts)
 	if err != nil {

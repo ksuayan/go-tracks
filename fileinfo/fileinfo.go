@@ -27,6 +27,7 @@ type FileInfo struct {
 	Title            string    `bson:"title"`
 	Artist           string    `bson:"artist"`
 	Album            string    `bson:"album"`
+	AlbumArtist			 string    `bson:"album_artist"`
 	Year             int       `bson:"year"`
 	Genre            string    `bson:"genre"`
 	Bitrate          int       `bson:"bitrate"`
@@ -56,10 +57,8 @@ func IsAudioFile(extension string) bool {
 	}
 	return false
 }
-
-
-func ScanDirectory(root string) ([]FileInfo, error) {
-	var files []FileInfo
+func ScanDirectoryAsync(root string, fileChan chan<- FileInfo, doneChan chan<- error) {
+	defer close(fileChan) // Close the channel when done
 
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -68,7 +67,6 @@ func ScanDirectory(root string) ([]FileInfo, error) {
 
 		if !info.IsDir() {
 			fileExt := strings.ToLower(filepath.Ext(info.Name()))
-
 			if IsAudioFile(fileExt) {
 				dirPath := filepath.Dir(path)
 				fileName := info.Name()
@@ -80,7 +78,7 @@ func ScanDirectory(root string) ([]FileInfo, error) {
 					creationDate = time.Time{}
 				}
 
-				// Open the audio file and read the embedded metadata
+				// Open the audio file and read metadata
 				fullpath := filepath.Join(dirPath, fileName)
 				audioMetadata, err := taglib.Read(fullpath)
 				if err != nil {
@@ -96,61 +94,78 @@ func ScanDirectory(root string) ([]FileInfo, error) {
 					return nil
 				}
 
-				files = append(files, FileInfo{
-					FilePath: 			  fullpath,
-					DirectoryPath:    dirPath,
-					FileName:         fileName,
-					FileExtension:    fileExt,
-					CreationDate:     creationDate,
+				// Send FileInfo to the channel
+				fileChan <- FileInfo{
+					FilePath:        fullpath,
+					DirectoryPath:   dirPath,
+					FileName:        fileName,
+					FileExtension:   fileExt,
+					CreationDate:    creationDate,
 					ModificationDate: modDate,
-					Title:            audioMetadata.Title(),
-					Artist:           audioMetadata.Artist(),
-					Album:            audioMetadata.Album(),
-					Year:             audioMetadata.Year(),
-					Genre:            audioMetadata.Genre(),
-					Bitrate:          audioMetadata.Bitrate(),
-					Samplerate:       audioMetadata.Samplerate(),
-					Channels:         audioMetadata.Channels(),
-					Length:           audioMetadata.Length(),
-					Track:            audioMetadata.Track(),
-					Status:           "new",
-					CoverArtHash: 		"",
-					FileHash:         fileHash,
-				})
+					Title:           audioMetadata.Title(),
+					Artist:          audioMetadata.Artist(),
+					Album:           audioMetadata.Album(),
+					Year:            audioMetadata.Year(),
+					Genre:           audioMetadata.Genre(),
+					Bitrate:         audioMetadata.Bitrate(),
+					Samplerate:      audioMetadata.Samplerate(),
+					Channels:        audioMetadata.Channels(),
+					Length:          audioMetadata.Length(),
+					Track:           audioMetadata.Track(),
+					Status:          "new",
+					CoverArt:				 "",
+					CoverArtHash:    "",
+					FileHash:        fileHash,
+				}
 			}
 		}
 		return nil
 	})
 
-	return files, err
+	doneChan <- err // Send error (or nil) when done
 }
 
-func ScanDirectoryAndUpdateDB(root string, db *mongo.Database) error {
-	files, err := ScanDirectory(root)
-	if err != nil {
-		return err
-	}
+func UpdateDatabase(db *mongo.Database, fileChan <-chan FileInfo, doneChan <-chan error) error {
 	collection := db.Collection("tracks")
+	for {
+		select {
+		case file, ok := <-fileChan:
+			if !ok {
+				// fileChan closed; wait for doneChan
+				err := <-doneChan
+				return err
+			}
 
-	for _, file := range files {
+			// Enrich with FFProbe data
+			ffprobeData, err := ffprobe.GetFFProbe(file.FilePath)
+			if err != nil {
+				log.Printf("Error getting ffprobe output for %s: %v", file.FileName, err)
+			} else {
+				file.FFProbe = *ffprobeData
+				tags := ffprobeData.Format.Tags
+				file.AlbumArtist = utils.SafeGetTagValue(tags,	"album_artist")
+			}
 
-		// Enrich with FFProbe data
-		ffprobeData, err := ffprobe.GetFFProbe(file.FilePath)
-		if err != nil {
-			log.Printf("Error getting ffprobe output for %s: %v", file.FileName, err)
-		} else {
-			file.FFProbe = *ffprobeData
-		}
-		// match by file path
-		filter := bson.M{"filePath": file.FilePath} // Match by file hash
-		update := bson.M{
-			"$set": file, // Set all fields
-		}
-		_, err = collection.UpdateOne(context.Background(), filter, update, options.Update().SetUpsert(true))
-		if err != nil {
-			log.Printf("Error updating database for %s: %v", file.FileName, err)
+			// Update the database
+			filter := bson.M{"filePath": file.FilePath}
+			update := bson.M{"$set": file}
+			_, err = collection.UpdateOne(context.Background(), filter, update, options.Update().SetUpsert(true))
+			if err != nil {
+				log.Printf("Error updating database for %s: %v", file.FileName, err)
+			}
+		case err := <-doneChan:
 			return err
 		}
 	}
-	return nil
+}
+
+func ScanDirectoryAndUpdateDB(root string, db *mongo.Database) error {
+	fileChan := make(chan FileInfo, 100) // Buffered channel for FileInfo
+	doneChan := make(chan error, 1)     // Channel for signaling completion
+
+	// Start scanning in a separate goroutine
+	go ScanDirectoryAsync(root, fileChan, doneChan)
+
+	// Update the database while scanning
+	return UpdateDatabase(db, fileChan, doneChan)
 }

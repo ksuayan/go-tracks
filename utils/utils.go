@@ -74,3 +74,12 @@ func SafeGet(myMap map[string]interface{}, keys ...string) (interface{}, bool) {
 	}
 	return current, true
 }
+
+// SafeGetTagValue is a helper function that safely retrieves a tag value from a map.
+func SafeGetTagValue( tags map[string] string, tagName string) (string){
+	tagValue, ok := tags[tagName]
+	if !ok {
+		fmt.Printf("Error: %s not found or not a string", tagName)
+	}
+	return tagValue
+}
