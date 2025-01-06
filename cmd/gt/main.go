@@ -61,11 +61,12 @@ func main() {
 
 	// Enqueue tasks
 	err = worker.EnqueueTasks(db, tasks)
-	close(tasks) // Close tasks channel after enqueueing
 	if err != nil {
 		fmt.Printf("Error enqueueing tasks: %v\n", err)
 		os.Exit(1)
 	}
+
+	close(tasks) // Close tasks channel after enqueueing
 
 	// Wait for all workers to finish
 	wg.Wait()

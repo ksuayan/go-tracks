@@ -22,16 +22,14 @@ const (
 func Worker(tasks <-chan map[string]interface{}, db *mongo.Database, outputDir string, wg *sync.WaitGroup) {
 	defer wg.Done()
 	
-
 	for track := range tasks {
-
 		// Validate required fields
 		filePath, ok := track["filePath"].(string)
 		if !ok || filePath == "" {
 			fmt.Println("Error: Missing or invalid filePath in track metadata")
 			continue
 		}
-		fmt.Printf("Processing %s\n", filePath)
+		// fmt.Printf("Processing file: %s\n", filePath)
 
 		// Extract Cover Art
 		coverArtHash, coverArtPath, err := coverart.ExtractCoverArt(db, filePath, outputDir)
@@ -69,16 +67,19 @@ func Worker(tasks <-chan map[string]interface{}, db *mongo.Database, outputDir s
 func EnqueueTasks(db *mongo.Database, tasks chan<- map[string]interface{}) error {
 	cursor, err := db.Collection("tracks").Find(context.Background(), bson.M{"status": bson.M{"$in": []string{"new", "updated"}}})
 	if err != nil {
-		return err
+			return err
 	}
 	defer cursor.Close(context.Background())
 
+	count := 0
 	for cursor.Next(context.Background()) {
 		var track map[string]interface{}
 		if err := cursor.Decode(&track); err != nil {
 			return err
 		}
 		tasks <- track
+		count++
 	}
+	fmt.Printf("Total tasks enqueued: %d\n", count) // Log total tasks enqueued
 	return nil
 }

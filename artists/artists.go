@@ -58,7 +58,7 @@ func UpdateArtists(db *mongo.Database, track map[string] interface {}, mbEnabled
 	var artistID string
 	if artistRes.UpsertedID != nil {
 		artistID = mongodb.ToHex(artistRes.UpsertedID.(primitive.ObjectID))
-		fmt.Printf("Upserted Artist ID: %s\n", artistID)
+		fmt.Printf("Upserted Artist: %s\n", artist)
 	} else {
 		var existingArtist bson.M
 		err := artistsCollection.FindOne(context.Background(), artistFilter).Decode(&existingArtist)
@@ -66,7 +66,7 @@ func UpdateArtists(db *mongo.Database, track map[string] interface {}, mbEnabled
 			return "", err
 		}
 		artistID = mongodb.ToHex(existingArtist["_id"].(primitive.ObjectID))
-		fmt.Printf("Existing Artist ID: %s\n", artistID)
+		// fmt.Printf("Existing Artist: %s\n", artist)
 	}
 
 	return artistID, nil

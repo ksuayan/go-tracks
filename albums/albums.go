@@ -33,7 +33,7 @@ func UpdateAlbums(db *mongo.Database, track map[string] interface {} ) (string, 
 			"coverArtHash": coverArtHash,
 		},
 	}
-	
+
 	albumOpts := options.Update().SetUpsert(true)
 	albumRes, err := albumsCollection.UpdateOne(context.Background(), albumFilter, albumUpdate, albumOpts)
 	if err != nil {
@@ -43,7 +43,7 @@ func UpdateAlbums(db *mongo.Database, track map[string] interface {} ) (string, 
 	var albumID string
 	if albumRes.UpsertedID != nil {
 		albumID = mongodb.ToHex(albumRes.UpsertedID.(primitive.ObjectID))
-		fmt.Printf("Upserted Album ID: %s\n", albumID)
+		fmt.Printf("Upserted Album: %s\n", album)
 	} else {
 		var existingAlbum bson.M
 		err := albumsCollection.FindOne(context.Background(), albumFilter).Decode(&existingAlbum)
@@ -51,7 +51,7 @@ func UpdateAlbums(db *mongo.Database, track map[string] interface {} ) (string, 
 			return "", err
 		}
 		albumID = mongodb.ToHex(existingAlbum["_id"].(primitive.ObjectID))
-		fmt.Printf("Existing Album ID: %s\n", albumID)
+		// fmt.Printf("Existing Album: %s\n", album)
 	}
 
 	return albumID, nil

@@ -2,6 +2,7 @@ package fileinfo
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -57,17 +58,22 @@ func IsAudioFile(extension string) bool {
 	}
 	return false
 }
+
 func ScanDirectoryAsync(root string, fileChan chan<- FileInfo, doneChan chan<- error) {
 	defer close(fileChan) // Close the channel when done
 
+	var totalFiles int
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return err
+			log.Printf("Error accessing path %s: %v", path, err)
+			return nil // Continue processing other files
 		}
 
 		if !info.IsDir() {
 			fileExt := strings.ToLower(filepath.Ext(info.Name()))
+
 			if IsAudioFile(fileExt) {
+				log.Printf("Valid audio file found: %s", path)
 				dirPath := filepath.Dir(path)
 				fileName := info.Name()
 				modDate := info.ModTime()
@@ -94,6 +100,11 @@ func ScanDirectoryAsync(root string, fileChan chan<- FileInfo, doneChan chan<- e
 					return nil
 				}
 
+				ffprobeData, err := ffprobe.GetFFProbe(fullpath)
+				if err != nil {
+					log.Printf("Error getting ffprobe for %s: %v", info.Name(), err)
+				} 
+
 				// Send FileInfo to the channel
 				fileChan <- FileInfo{
 					FilePath:        fullpath,
@@ -116,27 +127,45 @@ func ScanDirectoryAsync(root string, fileChan chan<- FileInfo, doneChan chan<- e
 					CoverArt:				 "",
 					CoverArtHash:    "",
 					FileHash:        fileHash,
+					FFProbe: 			   *ffprobeData,
+					AlbumArtist: 		 utils.SafeGetTagValue(ffprobeData.Format.Tags,	"album_artist"),
 				}
+
+				totalFiles++
+
+			} else {
+				log.Printf("Skipping non-audio file: %s", path)
 			}
 		}
 		return nil
 	})
 
-	doneChan <- err // Send error (or nil) when done
+	if err != nil {
+		log.Printf("Error walking the path: %v", err)
+	}
+
+	log.Printf("Total audio files scanned: %d", totalFiles)
+
+	doneChan <- err
 }
 
 func UpdateDatabase(db *mongo.Database, fileChan <-chan FileInfo, doneChan <-chan error) error {
 	collection := db.Collection("tracks")
+	insertedCount := 0
+
 	for {
 		select {
 		case file, ok := <-fileChan:
 			if !ok {
 				// fileChan closed; wait for doneChan
 				err := <-doneChan
+				fmt.Printf("Total files inserted/updated: %d\n", insertedCount)
 				return err
 			}
 
 			// Enrich with FFProbe data
+
+			/*
 			ffprobeData, err := ffprobe.GetFFProbe(file.FilePath)
 			if err != nil {
 				log.Printf("Error getting ffprobe output for %s: %v", file.FileName, err)
@@ -145,14 +174,24 @@ func UpdateDatabase(db *mongo.Database, fileChan <-chan FileInfo, doneChan <-cha
 				tags := ffprobeData.Format.Tags
 				file.AlbumArtist = utils.SafeGetTagValue(tags,	"album_artist")
 			}
+			*/
+
+
 
 			// Update the database
 			filter := bson.M{"filePath": file.FilePath}
 			update := bson.M{"$set": file}
-			_, err = collection.UpdateOne(context.Background(), filter, update, options.Update().SetUpsert(true))
+			_, err := collection.UpdateOne(context.Background(), 
+				filter, 
+				update, 
+				options.Update().SetUpsert(true))
+
 			if err != nil {
 				log.Printf("Error updating database for %s: %v", file.FileName, err)
+			} else {
+				insertedCount++
 			}
+
 		case err := <-doneChan:
 			return err
 		}
@@ -160,7 +199,7 @@ func UpdateDatabase(db *mongo.Database, fileChan <-chan FileInfo, doneChan <-cha
 }
 
 func ScanDirectoryAndUpdateDB(root string, db *mongo.Database) error {
-	fileChan := make(chan FileInfo, 100) // Buffered channel for FileInfo
+	fileChan := make(chan FileInfo, 1000) // Buffered channel for FileInfo
 	doneChan := make(chan error, 1)     // Channel for signaling completion
 
 	// Start scanning in a separate goroutine
