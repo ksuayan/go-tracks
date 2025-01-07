@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image"
 	"image/jpeg"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -43,7 +44,13 @@ func ConvertToJPEG(inputFile, outputFile string) error {
 	return nil
 }
 
-func ExtractCoverArt(db *mongo.Database, filePath string, outputDir string) (string, string, error) {
+func ExtractCoverArt(db *mongo.Database, track map[string]interface{}, outputDir string) (string, string, error) {
+
+	rootDir := track["rootDir"].(string)
+	subDir := track["subDir"].(string)
+	fileName := track["fileName"].(string)
+	filePath := fmt.Sprintf("%s/%s/%s", rootDir, subDir, fileName)
+
 	ext := strings.ToLower(filepath.Ext(filePath))
   uniqueID := utils.GetUniqueID()
 	// Generate a unique filename by appending timestamp and random number
@@ -55,10 +62,10 @@ func ExtractCoverArt(db *mongo.Database, filePath string, outputDir string) (str
 	case ".flac":
 		cmd = exec.Command("metaflac", fmt.Sprintf("--export-picture-to=%s", tempFile), filePath)
 	case ".m4a", ".mp4", ".alac", ".mp3":
-		fmt.Printf(">>> ffmpeg (.m4a): Extracting cover art from %s\n", filePath)
+		log.Printf(">>> ffmpeg (.m4a): Extracting cover art from %s\n", fileName)
 		cmd = exec.Command("ffmpeg", "-loglevel", "quiet", "-i", filePath, "-an", "-frames:v", "1", "-update", "1", tempFile)
 	default:
-    fmt.Printf(">>> ffmpeg (default): Extracting cover art from %s\n", filePath)
+    log.Printf(">>> ffmpeg (default): Extracting cover art from %s\n", fileName)
 		cmd = exec.Command("ffmpeg", "-loglevel", "quiet", "-i", filePath, "-an", "-frames:v", "1", "-update", "1", tempFile)
 	}
 
@@ -67,7 +74,6 @@ func ExtractCoverArt(db *mongo.Database, filePath string, outputDir string) (str
 	if err := cmd.Run(); err != nil {
 		return "", "", fmt.Errorf("error extracting cover art: %w", err)
 	}
-
   
 	// Generate a hash for the cover art file
 	hash, err := utils.GetFileHash(tempFile)

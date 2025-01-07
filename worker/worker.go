@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -24,17 +25,18 @@ func Worker(tasks <-chan map[string]interface{}, db *mongo.Database, outputDir s
 	
 	for track := range tasks {
 		// Validate required fields
-		filePath, ok := track["filePath"].(string)
-		if !ok || filePath == "" {
-			fmt.Println("Error: Missing or invalid filePath in track metadata")
-			continue
-		}
+
+		rootDir := track["rootDir"].(string)
+		subDir := track["subDir"].(string)
+		fileName := track["fileName"].(string)
+		filePath := fmt.Sprintf("%s/%s/%s", rootDir, subDir, fileName)
+
 		// fmt.Printf("Processing file: %s\n", filePath)
 
 		// Extract Cover Art
-		coverArtHash, coverArtPath, err := coverart.ExtractCoverArt(db, filePath, outputDir)
+		coverArtHash, coverArtPath, err := coverart.ExtractCoverArt(db, track, outputDir)
 		if err != nil {
-			fmt.Printf("Error extracting cover art for %s: %v\n", coverArtPath, err)
+			log.Printf("Error extracting cover art for %s: %v\n", coverArtPath, err)
 			continue
 		}
 		track["coverArtHash"] = coverArtHash
@@ -42,7 +44,7 @@ func Worker(tasks <-chan map[string]interface{}, db *mongo.Database, outputDir s
 		// Update Artist
 		artistID, err := artists.UpdateArtists(db, track, mbEnabled)
 		if err != nil {
-			fmt.Printf("Error updating artist for %s: %v\n", filePath, err)
+			log.Printf("Error updating artist for %s: %v\n", filePath, err)
 			continue
 		}
 		track["artistID"] = artistID 
@@ -50,7 +52,7 @@ func Worker(tasks <-chan map[string]interface{}, db *mongo.Database, outputDir s
 		// Update Album
 		albumID, err := albums.UpdateAlbums(db, track)
 		if err != nil {
-			fmt.Printf("Error updating album for %s: %v\n", filePath, err)
+			log.Printf("Error updating album for %s: %v\n", filePath, err)
 			continue
 		}
 		track["albumID"] = albumID
@@ -58,13 +60,14 @@ func Worker(tasks <-chan map[string]interface{}, db *mongo.Database, outputDir s
 		// Update Track Metadata
 		err = tracks.UpdateTracks(db, track)
 		if err != nil {
-			fmt.Printf("Error updating track metadata for %s: %v\n", filePath, err)
+			log.Printf("Error updating track metadata for %s: %v\n", filePath, err)
 		}
 	}
 }
 
 // Enqueue tasks for worker pool
-func EnqueueTasks(db *mongo.Database, tasks chan<- map[string]interface{}) error {
+func EnqueueTasks(db *mongo.Database, tasks chan<- map[string]interface{}, wg *sync.WaitGroup) error {
+	defer wg.Done()
 	cursor, err := db.Collection("tracks").Find(context.Background(), bson.M{"status": bson.M{"$in": []string{"new", "updated"}}})
 	if err != nil {
 			return err
@@ -80,6 +83,6 @@ func EnqueueTasks(db *mongo.Database, tasks chan<- map[string]interface{}) error
 		tasks <- track
 		count++
 	}
-	fmt.Printf("Total tasks enqueued: %d\n", count) // Log total tasks enqueued
+	log.Printf("Total tasks enqueued: %d\n", count) // Log total tasks enqueued
 	return nil
 }

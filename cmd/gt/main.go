@@ -28,7 +28,7 @@ func main() {
 	mongoURI := "mongodb://localhost:27017"
 	client, db, err := mongodb.ConnectToMongoDB(mongoURI)
 	if err != nil {
-		fmt.Printf("Error connecting to MongoDB: %v\n", err)
+		log.Printf("Error connecting to MongoDB: %v\n", err)
 		os.Exit(1)
 	}
 	defer client.Disconnect(context.Background())
@@ -41,17 +41,17 @@ func main() {
 	defer os.RemoveAll(tempDir)
 
 	// Step 1: Scan directory and update tracks
-	fmt.Println("Scanning directory and updating tracks...")
+	log.Println("Scanning directory and updating tracks...")
 	err = fileinfo.ScanDirectoryAndUpdateDB(inputDir, db)
 	if err != nil {
-		fmt.Printf("Error scanning directory: %v\n", err)
+		log.Printf("Error scanning directory: %v\n", err)
 		os.Exit(1)
 	}
 
 	// Step 2: Start worker pool
 	fmt.Println("Processing cover art and updating metadata...")
 	var wg sync.WaitGroup
-	tasks := make(chan map[string]interface{}, numWorkers) // Task channel
+	tasks := make(chan map[string]interface{}, numWorkers) // Buffered channel
 
 	// Launch workers
 	for i := 0; i < numWorkers; i++ {
@@ -60,16 +60,18 @@ func main() {
 	}
 
 	// Enqueue tasks
-	err = worker.EnqueueTasks(db, tasks)
-	if err != nil {
-		fmt.Printf("Error enqueueing tasks: %v\n", err)
-		os.Exit(1)
-	}
-
-	close(tasks) // Close tasks channel after enqueueing
+	wg.Add(1)
+	go func() {
+		err = worker.EnqueueTasks(db, tasks, &wg)
+		if err != nil {
+			log.Printf("Error enqueueing tasks: %v\n", err)
+			os.Exit(1)
+		}
+		close(tasks) // Close tasks channel after enqueueing
+	}()
 
 	// Wait for all workers to finish
 	wg.Wait()
-	fmt.Println("All tasks completed successfully!")
+	log.Println("All tasks completed successfully!")
 
 }

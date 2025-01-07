@@ -2,7 +2,7 @@ package albums
 
 import (
 	"context"
-	"fmt"
+	"log"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -17,7 +17,7 @@ func UpdateAlbums(db *mongo.Database, track map[string] interface {} ) (string, 
 
 	album := track["album"].(string)
 	artistID := track["artistID"].(string)
-	albumArtist := track["album_artist"].(string)
+	albumArtist := track["albumArtist"].(string)
 	coverArtHash := track["coverArtHash"].(string)
 
 	if albumArtist == "" {
@@ -25,11 +25,11 @@ func UpdateAlbums(db *mongo.Database, track map[string] interface {} ) (string, 
 	}
 
 	albumsCollection := db.Collection("albums")
-	albumFilter := bson.M{"name": album, "album_artist": albumArtist}
+	albumFilter := bson.M{"name": album, "albumArtist": albumArtist}
 	albumUpdate := bson.M{
 		"$set": bson.M{
 			"name":        album,
-			"album_artist":    albumArtist,
+			"albumArtist":    albumArtist,
 			"coverArtHash": coverArtHash,
 		},
 	}
@@ -43,7 +43,7 @@ func UpdateAlbums(db *mongo.Database, track map[string] interface {} ) (string, 
 	var albumID string
 	if albumRes.UpsertedID != nil {
 		albumID = mongodb.ToHex(albumRes.UpsertedID.(primitive.ObjectID))
-		fmt.Printf("Upserted Album: %s\n", album)
+		log.Printf("Upserted Album: %s\n", album)
 	} else {
 		var existingAlbum bson.M
 		err := albumsCollection.FindOne(context.Background(), albumFilter).Decode(&existingAlbum)

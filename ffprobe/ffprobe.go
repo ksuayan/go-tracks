@@ -37,7 +37,7 @@ type Format struct {
 
 // getFFProbe runs ffprobe on the input file and parses the JSON output
 func GetFFProbe(inputFile string) (*FFProbe, error) {
-	fmt.Printf(">>> ffprobe: Running ffprobe on %s\n", inputFile)
+	// fmt.Printf(">>> ffprobe: Running ffprobe on %s\n", inputFile)
 	cmd := exec.Command("ffprobe", "-i", inputFile, "-show_format", "-show_streams", "-print_format", "json", "-v", "quiet")
 	output, err := cmd.Output()
 	if err != nil {

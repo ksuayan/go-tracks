@@ -2,6 +2,7 @@ package musicbrainz
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/go-resty/resty/v2"
 )
@@ -16,8 +17,8 @@ func FetchMusicBrainz(apiEndpoint, mbID string) (*map[string]interface{}, error)
 	client.SetHeader("User-Agent", UserAgent)
 	client.SetHeader("Accept", "application/json")
 
-	fmt.Printf("Fetching MusicBrainz Artist Data for %s\n", mbID)
-	fmt.Printf("URL: %s/%s/%s\n", BaseURL, apiEndpoint, mbID)
+	log.Printf("Fetching MusicBrainz Artist Data for %s\n", mbID)
+	log.Printf("URL: %s/%s/%s\n", BaseURL, apiEndpoint, mbID)
 
 	// Define a generic map to capture the full response
 	var fullResponse map[string]interface{}
@@ -26,7 +27,7 @@ func FetchMusicBrainz(apiEndpoint, mbID string) (*map[string]interface{}, error)
 		SetResult(&fullResponse).
 		Get(fmt.Sprintf("%s/%s/%s", BaseURL, apiEndpoint, mbID))
 
-	fmt.Println("Response Body:", resp.String())
+	log.Println("Response Body:", resp.String())
 
 	if err != nil {
 		return nil, fmt.Errorf("error making request to MusicBrainz: %w", err)

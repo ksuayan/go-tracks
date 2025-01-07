@@ -2,7 +2,6 @@ package fileinfo
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -19,8 +18,8 @@ import (
 )
 
 type FileInfo struct {
-	FilePath				 string    `bson:"filePath"`
-	DirectoryPath    string    `bson:"directoryPath"`	
+	RootDir    			 string    `bson:"rootDir"`	
+	SubDir				   string    `bson:"subDir"`
 	FileName         string    `bson:"fileName"`
 	FileExtension    string    `bson:"fileExtension"`
 	CreationDate     time.Time `bson:"creationDate"`
@@ -28,7 +27,7 @@ type FileInfo struct {
 	Title            string    `bson:"title"`
 	Artist           string    `bson:"artist"`
 	Album            string    `bson:"album"`
-	AlbumArtist			 string    `bson:"album_artist"`
+	AlbumArtist			 string    `bson:"albumArtist"`
 	Year             int       `bson:"year"`
 	Genre            string    `bson:"genre"`
 	Bitrate          int       `bson:"bitrate"`
@@ -62,7 +61,7 @@ func IsAudioFile(extension string) bool {
 func ScanDirectoryAsync(root string, fileChan chan<- FileInfo, doneChan chan<- error) {
 	defer close(fileChan) // Close the channel when done
 
-	var totalFiles int
+	totalFiles := 0
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			log.Printf("Error accessing path %s: %v", path, err)
@@ -70,13 +69,16 @@ func ScanDirectoryAsync(root string, fileChan chan<- FileInfo, doneChan chan<- e
 		}
 
 		if !info.IsDir() {
+
 			fileExt := strings.ToLower(filepath.Ext(info.Name()))
 
 			if IsAudioFile(fileExt) {
-				log.Printf("Valid audio file found: %s", path)
 				dirPath := filepath.Dir(path)
+				subDir := utils.GetSubDir(path, root, info.Name())
 				fileName := info.Name()
 				modDate := info.ModTime()
+
+				log.Printf("dir: %s, audio file: %s", subDir, fileName)
 
 				// Get creation date
 				creationDate, err := utils.GetFileCreationDate(path)
@@ -107,8 +109,8 @@ func ScanDirectoryAsync(root string, fileChan chan<- FileInfo, doneChan chan<- e
 
 				// Send FileInfo to the channel
 				fileChan <- FileInfo{
-					FilePath:        fullpath,
-					DirectoryPath:   dirPath,
+					RootDir:				 root,
+					SubDir:        	 subDir,
 					FileName:        fileName,
 					FileExtension:   fileExt,
 					CreationDate:    creationDate,
@@ -159,27 +161,12 @@ func UpdateDatabase(db *mongo.Database, fileChan <-chan FileInfo, doneChan <-cha
 			if !ok {
 				// fileChan closed; wait for doneChan
 				err := <-doneChan
-				fmt.Printf("Total files inserted/updated: %d\n", insertedCount)
+				log.Printf("Total files inserted/updated: %d\n", insertedCount)
 				return err
 			}
 
-			// Enrich with FFProbe data
-
-			/*
-			ffprobeData, err := ffprobe.GetFFProbe(file.FilePath)
-			if err != nil {
-				log.Printf("Error getting ffprobe output for %s: %v", file.FileName, err)
-			} else {
-				file.FFProbe = *ffprobeData
-				tags := ffprobeData.Format.Tags
-				file.AlbumArtist = utils.SafeGetTagValue(tags,	"album_artist")
-			}
-			*/
-
-
-
 			// Update the database
-			filter := bson.M{"filePath": file.FilePath}
+			filter := bson.M{"rootDir": file.RootDir, "subDir": file.SubDir, "fileName": file.FileName}
 			update := bson.M{"$set": file}
 			_, err := collection.UpdateOne(context.Background(), 
 				filter, 

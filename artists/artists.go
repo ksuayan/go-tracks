@@ -2,7 +2,7 @@ package artists
 
 import (
 	"context"
-	"fmt"
+	"log"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -21,7 +21,7 @@ func UpdateArtists(db *mongo.Database, track map[string] interface {}, mbEnabled
 
 	tags, ok := utils.SafeGet(track, "ffprobe", "format", "tags")
 	if !ok {
-		fmt.Printf("No tags found for %s\n", artist)
+		log.Printf("No tags found for %s\n", artist)
 	}
 
 	artistsCollection := db.Collection("artists")
@@ -31,12 +31,12 @@ func UpdateArtists(db *mongo.Database, track map[string] interface {}, mbEnabled
 	if (mbEnabled) {
 		mbArtistID, ok := tags.(map[string]interface{})["MusicBrainz Artist Id"].(string)
 		if !ok {
-			fmt.Printf("Error: MusicBrainz Artist Id not found or not a string")
+			log.Printf("Error: MusicBrainz Artist Id not found or not a string")
 		}
 
 		mbArtistData, err := musicbrainz.FetchMusicBrainz("artist", mbArtistID)
 		if err != nil {
-			fmt.Printf("Error fetching MusicBrainz Artist Data for %s: %v\n", artist, err)
+			log.Printf("Error fetching MusicBrainz Artist Data for %s: %v\n", artist, err)
 		}
 
 		artistUpdate = bson.M{"$set": bson.M{
@@ -58,7 +58,7 @@ func UpdateArtists(db *mongo.Database, track map[string] interface {}, mbEnabled
 	var artistID string
 	if artistRes.UpsertedID != nil {
 		artistID = mongodb.ToHex(artistRes.UpsertedID.(primitive.ObjectID))
-		fmt.Printf("Upserted Artist: %s\n", artist)
+		log.Printf("Upserted Artist: %s\n", artist)
 	} else {
 		var existingArtist bson.M
 		err := artistsCollection.FindOne(context.Background(), artistFilter).Decode(&existingArtist)
@@ -66,7 +66,7 @@ func UpdateArtists(db *mongo.Database, track map[string] interface {}, mbEnabled
 			return "", err
 		}
 		artistID = mongodb.ToHex(existingArtist["_id"].(primitive.ObjectID))
-		// fmt.Printf("Existing Artist: %s\n", artist)
+		// log.Printf("Existing Artist: %s\n", artist)
 	}
 
 	return artistID, nil
